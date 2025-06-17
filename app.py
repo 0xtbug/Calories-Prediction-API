@@ -9,13 +9,13 @@ app = Flask(__name__)
 cors.CORS(app)
 
 FEATURE_ORDER = [
+    "Gender",
     "Age",
     "Height",
     "Weight",
     "Duration",
     "Heart_Rate",
-    "Body_Temp",
-    "Gender"
+    "Body_Temp"
 ]
 
 # Get the directory where app.py is located
@@ -58,15 +58,15 @@ except Exception as e:
 
 def validate_input_ranges(data):
     ranges = {
+        "Gender": (0, 1),
         "Age": (10, 80),
         "Height": (120, 220),
         "Weight": (40, 120),
         "Duration": (5, 180),
         "Heart_Rate": (60, 200),
-        "Body_Temp": (36, 40),
-        "Gender": (0, 1)
+        "Body_Temp": (36, 40)
     }
-    
+
     errors = []
     for field, (min_val, max_val) in ranges.items():
         try:
@@ -75,38 +75,38 @@ def validate_input_ranges(data):
                 errors.append(f"{field} must be between {min_val} and {max_val}")
         except (KeyError, ValueError):
             continue
-    
+
     return errors
 
 @app.route("/")
 def home():
     return f"""
     API Kalori Siap Digunakan!
-    
+
     Example POST request to /predict:
-    
-    curl -X POST {request.host_url}predict 
-         -H "Content-Type: application/json" 
+
+    curl -X POST {request.host_url}predict \
+         -H "Content-Type: application/json" \
          -d '{{
+             "Gender": 1,
              "Age": 25,
              "Height": 170,
              "Weight": 65,
              "Duration": 30,
              "Heart_Rate": 80,
-             "Body_Temp": 37,
-             "Gender": 1
+             "Body_Temp": 37
          }}'
-         
+
     Features must be provided in this order: {FEATURE_ORDER}
-         
+
     Feature ranges:
+    - Gender: 1 for male, 0 for female
     - Age: Adult age in years (10-80)
     - Height: Height in cm (120-220)
     - Weight: Weight in kg (40-120)
     - Duration: Exercise duration in minutes (5-180)
     - Heart_Rate: Heart rate in bpm (60-200)
     - Body_Temp: Body temperature in Celsius (36-40)
-    - Gender: 1 for male, 0 for female
     """
 
 @app.route("/predict", methods=["POST"])
@@ -116,27 +116,27 @@ def predict():
             "error": "Content-Type must be application/json",
             "example_request": {name: 0 for name in FEATURE_ORDER}
         }), 415
-    
+
     data = request.get_json()
-    
+
     missing_fields = [field for field in FEATURE_ORDER if field not in data]
     if missing_fields:
         return jsonify({
             "error": f"Missing required fields: {', '.join(missing_fields)}",
             "required_fields": FEATURE_ORDER
         }), 400
-    
+
     range_errors = validate_input_ranges(data)
     if range_errors:
         return jsonify({
             "error": "Input validation failed",
             "details": range_errors
         }), 400
-    
+
     try:
         features = np.array([float(data[field]) for field in FEATURE_ORDER]).reshape(1, -1)
         prediction = model.predict(features)
-        
+
         return jsonify({
             "predicted_calories": round(float(prediction[0]), 2),
             "input_data": {
@@ -154,6 +154,5 @@ def predict():
             "detail": str(e)
         }), 400
 
-# Only use debug mode when running directly
 if __name__ == "__main__":
     app.run(debug=False)
