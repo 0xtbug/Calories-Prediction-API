@@ -18,43 +18,26 @@ FEATURE_ORDER = [
     "Body_Temp"
 ]
 
-# Get the directory where app.py is located
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "model")
 MODEL_PATH = os.path.join(MODEL_DIR, "Calories_Prediction_model.pkl")
+SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
 
-# Ensure model directory exists
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-# Check if model file exists
-if not os.path.exists(MODEL_PATH):
-    raise FileNotFoundError(
-        f"Model file not found at {MODEL_PATH}. "
-        f"Please place the model file in the 'model' directory."
-    )
-
+# Load model
 try:
     model = joblib.load(MODEL_PATH)
     print("Model loaded successfully!")
-    print(f"Model expects {model.n_features_in_} features in this order: {FEATURE_ORDER}")
 except Exception as e:
-    print(f"Error loading model with joblib from {MODEL_PATH}: {str(e)}")
-    try:
-        with open(MODEL_PATH, "rb") as model_file:
-            model = pickle.load(model_file, encoding='latin1')
-            print("Model loaded with pickle (latin1 encoding)")
-    except Exception as e:
-        print(f"Error loading with pickle (latin1) from {MODEL_PATH}: {str(e)}")
-        try:
-            with open(MODEL_PATH, "rb") as model_file:
-                model = pickle.load(model_file)
-                print("Model loaded with pickle (default)")
-        except Exception as e:
-            print(f"Final attempt to load model failed: {str(e)}")
-            raise RuntimeError(
-                f"Failed to load model from {MODEL_PATH}. "
-                f"Please ensure the model file is correctly formatted and accessible."
-            )
+    raise RuntimeError(f"Failed to load model: {str(e)}")
+
+# Load scaler
+try:
+    scaler = joblib.load(SCALER_PATH)
+    print("Scaler loaded successfully!")
+except Exception as e:
+    raise RuntimeError(f"Failed to load scaler: {str(e)}")
 
 def validate_input_ranges(data):
     ranges = {
@@ -66,7 +49,6 @@ def validate_input_ranges(data):
         "Heart_Rate": (60, 200),
         "Body_Temp": (36, 40)
     }
-
     errors = []
     for field, (min_val, max_val) in ranges.items():
         try:
@@ -75,39 +57,11 @@ def validate_input_ranges(data):
                 errors.append(f"{field} must be between {min_val} and {max_val}")
         except (KeyError, ValueError):
             continue
-
     return errors
 
 @app.route("/")
 def home():
-    return f"""
-    API Kalori Siap Digunakan!
-
-    Example POST request to /predict:
-
-    curl -X POST {request.host_url}predict \
-         -H "Content-Type: application/json" \
-         -d '{{
-             "Gender": 1,
-             "Age": 25,
-             "Height": 170,
-             "Weight": 65,
-             "Duration": 30,
-             "Heart_Rate": 80,
-             "Body_Temp": 37
-         }}'
-
-    Features must be provided in this order: {FEATURE_ORDER}
-
-    Feature ranges:
-    - Gender: 1 for male, 0 for female
-    - Age: Adult age in years (10-80)
-    - Height: Height in cm (120-220)
-    - Weight: Weight in kg (40-120)
-    - Duration: Exercise duration in minutes (5-180)
-    - Heart_Rate: Heart rate in bpm (60-200)
-    - Body_Temp: Body temperature in Celsius (36-40)
-    """
+    return f"API Kalori siap digunakan!"
 
 @app.route("/predict", methods=["POST"])
 def predict():
@@ -118,7 +72,6 @@ def predict():
         }), 415
 
     data = request.get_json()
-
     missing_fields = [field for field in FEATURE_ORDER if field not in data]
     if missing_fields:
         return jsonify({
@@ -134,14 +87,21 @@ def predict():
         }), 400
 
     try:
-        features = np.array([float(data[field]) for field in FEATURE_ORDER]).reshape(1, -1)
-        prediction = model.predict(features)
+        raw_features = np.array([float(data[field]) for field in FEATURE_ORDER]).reshape(1, -1)
 
+        gender = raw_features[:, [0]]
+        features_to_scale = raw_features[:, 1:]
+
+        scaled_features = scaler.transform(features_to_scale)
+
+        # Gabungkan kembali
+        final_input = np.hstack((gender, scaled_features))
+
+        # Prediksi
+        prediction = model.predict(final_input)
         return jsonify({
-            "predicted_calories": round(float(prediction[0]), 2),
-            "input_data": {
-                name: float(data[name]) for name in FEATURE_ORDER
-            }
+            "predicted_calories": round(float(prediction[0]), 5),
+            "raw_prediction": prediction[0]
         })
     except ValueError as e:
         return jsonify({
@@ -152,7 +112,7 @@ def predict():
         return jsonify({
             "error": "Prediction failed",
             "detail": str(e)
-        }), 400
+        }), 500
 
 if __name__ == "__main__":
     app.run(debug=False)
